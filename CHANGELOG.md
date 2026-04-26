@@ -9,6 +9,16 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Duration rollover** — the WebView "resets in" formatter no longer renders impossible
+  values like `"1h 60m"` or `"1d 24h"`. After rounding, sub-units that reach their
+  maximum (minutes → 60, hours → 24) are now normalised upward: `60m` promotes to `1h`,
+  a `60`-minute overshoot in the hours branch promotes the hour count (and a resulting
+  `24h` promotes to `1d`), and a `24h` overshoot in the days branch promotes the day
+  count. Extracted into a testable `src/webview/formatDuration.ts` module with boundary
+  tests covering all rollover edges.
+
 ---
 
 ## [0.4.2] — 2026-03-15

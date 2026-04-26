@@ -549,16 +549,24 @@ function getWebviewContent(nonce: string, i18n: Record<string, string>): string 
       }
     }
 
+    // sync: formatDuration.ts — keep this inline JS in sync with src/webview/formatDuration.ts
     function fmt(seconds) {
       function r2(tmpl, a, b) { return tmpl.replace('__N__', String(a)).replace('__N2__', String(b)); }
-      if (seconds < 3600) { return i18n.unitM.replace('__N__', String(Math.round(seconds / 60))); }
+      if (seconds < 3600) {
+        const m = Math.round(seconds / 60);
+        if (m === 60) { return i18n.unitH.replace('__N__', '1'); }
+        return i18n.unitM.replace('__N__', String(m));
+      }
       if (seconds < 86400) {
-        const h = Math.floor(seconds / 3600);
-        const m = Math.round((seconds % 3600) / 60);
+        let h = Math.floor(seconds / 3600);
+        let m = Math.round((seconds % 3600) / 60);
+        if (m === 60) { m = 0; h += 1; }
+        if (h === 24) { return i18n.unitD.replace('__N__', '1'); }
         return m === 0 ? i18n.unitH.replace('__N__', String(h)) : r2(i18n.unitHM, h, m);
       }
-      const d = Math.floor(seconds / 86400);
-      const h = Math.round((seconds % 86400) / 3600);
+      let d = Math.floor(seconds / 86400);
+      let h = Math.round((seconds % 86400) / 3600);
+      if (h === 24) { h = 0; d += 1; }
       return h === 0 ? i18n.unitD.replace('__N__', String(d)) : r2(i18n.unitDH, d, h);
     }
 
