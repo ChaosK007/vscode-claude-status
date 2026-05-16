@@ -135,6 +135,11 @@
           "maximum": 100,
           "description": "%config.budget.alertThresholdPercent.desc%"
         },
+        "claudeStatus.notifications.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "CK-fork: Master toggle for all popup notifications. Default false (upstream default true). Set true to re-enable rate-limit and budget warning popups."
+        },
         "claudeStatus.notifications.rateLimitWarning": {
           "type": "boolean",
           "default": true,

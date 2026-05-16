@@ -29,30 +29,78 @@ function formatPercent(util: number): string {
 }
 
 function buildBar(utilization: number, width: number): string {
+  // ===== CK-fork: changed ASCII X/. to Unicode block chars — 2026-05-16 =====
+  // Original upstream: return 'X'.repeat(filled) + '.'.repeat(width - filled);
   const filled = Math.round(Math.min(1, utilization) * width);
-  return 'X'.repeat(filled) + '.'.repeat(width - filled);
+  return '█'.repeat(filled) + '░'.repeat(width - filled); // █░
+  // ===== END CK-fork =====
 }
+
+// ===== CK-fork: status-bar rendering helpers — 2026-05-16 =====
+// renderBar: wraps buildBar in [...] with a % suffix — matches statusline-command.sh format.
+// Color coding is handled by applyColor() via VS Code theme colours; no ANSI here.
+function renderBar(utilization: number, width = 8): string {
+  return `[${buildBar(utilization, width)}] ${formatPercent(utilization)}`;
+}
+
+// modelShortName: condenses full model IDs to 3-char display tokens for the status bar.
+// Add entries here when Anthropic releases new models.
+function modelShortName(model: string): string {
+  if (model.includes('opus'))   { return 'Op';  }
+  if (model.includes('sonnet')) { return 'Son'; }
+  if (model.includes('haiku'))  { return 'Hai'; }
+  return model.split('-').slice(0, 2).join('-'); // fallback: first two segments
+}
+
+// planName: derive subscription plan from rate-limit data.
+// has7dLimit === true means a 7-day window is enforced → Max plan.
+// Absence of a 7-day limit indicates Pro (5h only).
+// Note: this is inferred from API headers, not read directly from account data.
+// Last verified against Anthropic plan structure: 2026-05-16.
+function planName(has7dLimit: boolean): string {
+  return has7dLimit ? 'Max' : 'Pro';
+}
+// ===== END CK-fork =====
 
 function truncateName(name: string): string {
   return name.length > 12 ? name.slice(0, 11) + '…' : name;
 }
 
 export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[] = []): string {
-  const { dataSource, utilization5h, utilization7d, limitStatus, cost5h, cost7d, cacheAge, has7dLimit, providerType } = data;
+  // ===== CK-fork: rewritten to use bars, model name, plan, ctx approx — 2026-05-16 =====
+  // Original upstream format: '🤖 5h:78% 7d:84%'
+  // CK format:                'Son·Max 5h:[████░░░░] 45% 7d:[██░░░░░░] 23% ctx:~[██░░░░░░] 18%'
+  //
+  // Changes vs upstream:
+  //   - Removed 🤖 robot emoji prefix (CK preference)
+  //   - Added model short name + plan prefix (Son·Max, Son·Pro, etc.)
+  //   - Replaced plain % with Unicode block bars (matches statusline-command.sh)
+  //   - Removed inline ⚠ and ✗ text markers (color coding via applyColor() is sufficient)
+  //   - Added ctx:~[bar] approximate context window (from latestMsgInputTokens / model window size)
+  // ===== END CK-fork header =====
+
+  const { dataSource, utilization5h, utilization7d, limitStatus, cost5h, cost7d,
+          cacheAge, has7dLimit, providerType, model, ctxApproxUtil } = data;
   const displayMode = config.displayMode;
 
+  // ===== CK-fork: removed 🤖 prefix from no-credentials / no-data states =====
   if (dataSource === 'no-credentials') {
-    return vscode.l10n.t('🤖 Not logged in');
+    return vscode.l10n.t('Claude: not logged in');
   }
   if (dataSource === 'no-data') {
-    return vscode.l10n.t('🤖 Claude: run refresh');
+    return vscode.l10n.t('Claude: run refresh');
   }
+  // ===== END CK-fork =====
 
   const isStale = dataSource === 'stale';
   const staleSuffix = isStale ? ` [${formatDuration(cacheAge)} ago]` : '';
 
   // Non-Claude.ai providers (Bedrock, API key, local-only) always use cost mode
   const useCostMode = providerType !== 'claude-ai' || dataSource === 'local-only' || displayMode === 'cost';
+
+  // ===== CK-fork: model + plan prefix (only when we have a known model) — 2026-05-16 =====
+  const modelPrefix = model ? `${modelShortName(model)}·${planName(has7dLimit)} ` : '';
+  // ===== END CK-fork =====
 
   let part5h: string;
   let part7d: string;
@@ -63,19 +111,32 @@ export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[
   } else {
     // percent mode — Claude.ai only
     if (limitStatus === 'denied') {
-      part5h = `5h:100%✗`;
+      // ===== CK-fork: replaced '5h:100%✗' with bar at 100% — 2026-05-16 =====
+      // Original: part5h = `5h:100%✗`;
+      part5h = `5h:${renderBar(1)}✗`;
+      // ===== END CK-fork =====
       part7d = '';
     } else {
-      const warn5h = utilization5h >= 0.75 ? '⚠' : '';
-      part5h = `5h:${formatPercent(utilization5h)}${warn5h}`;
+      // ===== CK-fork: replaced formatPercent() with renderBar(); removed ⚠ text markers =====
+      // Original: const warn5h = utilization5h >= 0.75 ? '⚠' : '';
+      //           part5h = `5h:${formatPercent(utilization5h)}${warn5h}`;
+      part5h = `5h:${renderBar(utilization5h)}`;
       if (has7dLimit) {
-        const warn7d = utilization7d >= 0.75 ? '⚠' : '';
-        part7d = ` 7d:${formatPercent(utilization7d)}${warn7d}`;
+        // Original: const warn7d = utilization7d >= 0.75 ? '⚠' : '';
+        //           part7d = ` 7d:${formatPercent(utilization7d)}${warn7d}`;
+        part7d = ` 7d:${renderBar(utilization7d)}`;
       } else {
         part7d = '';
       }
+      // ===== END CK-fork =====
     }
   }
+
+  // ===== CK-fork: context window approximation suffix — 2026-05-16 =====
+  // Only shown when we have a recent model reading (latestMsgTimestamp > 0 → model !== '').
+  // The ~ prefix signals this is approximate (derived from JSONL, not the live CLI pipe).
+  const ctxPart = model ? ` ctx:~${renderBar(ctxApproxUtil)}` : '';
+  // ===== END CK-fork =====
 
   // Project cost suffix
   let projectPart = '';
@@ -91,15 +152,31 @@ export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[
     }
   }
 
-  const main = `🤖 ${part5h}${part7d}${projectPart}`;
+  // ===== CK-fork: removed 🤖 prefix; added modelPrefix and ctxPart — 2026-05-16 =====
+  // Original: const main = `🤖 ${part5h}${part7d}${projectPart}`;
+  const main = `${modelPrefix}${part5h}${part7d}${ctxPart}${projectPart}`;
+  // ===== END CK-fork =====
+
   return isStale ? `${main}${staleSuffix}` : main;
 }
+
+// ===== CK-fork: subscription plan model availability — 2026-05-16 =====
+// Source: https://www.anthropic.com/claude/pricing — verified 2026-05-16.
+// Update this table when Anthropic changes plan features.
+const PLAN_MODELS: Record<string, string[]> = {
+  'Max': ['Opus 4', 'Sonnet 4', 'Haiku 4'],
+  'Pro': ['Sonnet 4', 'Haiku 4'],         // Opus not available on Pro
+};
+// ===== END CK-fork =====
 
 export function buildTooltip(data: ClaudeUsageData, projectCosts: ProjectCostData[] = []): string {
   const {
     utilization5h, utilization7d, resetIn5h, resetIn7d,
     cost5h, costDay, cost7d, tokensIn5h, tokensOut5h,
     cacheAge, dataSource, has7dLimit, providerType,
+    // ===== CK-fork: destructure new fields — 2026-05-16 =====
+    model, ctxApproxUtil,
+    // ===== END CK-fork =====
   } = data;
 
   if (dataSource === 'no-credentials') {
@@ -117,15 +194,35 @@ export function buildTooltip(data: ClaudeUsageData, projectCosts: ProjectCostDat
   if (providerType === 'claude-ai') {
     // Rate limit section — only for Claude.ai subscriptions
     const bar5h = buildBar(utilization5h, 8);
+    // ===== CK-fork: added plan name + model to tooltip header — 2026-05-16 =====
+    const plan = planName(has7dLimit);
+    const modelDisplay = model ? `${model} (${modelShortName(model)})` : 'unknown';
     lines.push(
       vscode.l10n.t('Claude Code Usage'),
       '─────────────────────────────',
+      // CK-fork: plan + model line
+      `Plan:        ${plan}  |  Model: ${modelDisplay}`,
+    );
+    // CK-fork: available models for this plan (hardcoded 2026-05-16 — update if Anthropic changes plans)
+    const planModelList = PLAN_MODELS[plan];
+    if (planModelList) {
+      lines.push(`Models:      ${planModelList.join(', ')}`);
+    }
+    lines.push(
+      '─────────────────────────────',
       `5h window:   ${formatPercent(utilization5h)} [${bar5h}] resets in ${formatDuration(resetIn5h)}`,
     );
+    // ===== END CK-fork =====
     if (has7dLimit) {
       const bar7d = buildBar(utilization7d, 8);
       lines.push(`7d window:   ${formatPercent(utilization7d)} [${bar7d}] resets in ${formatDuration(resetIn7d)}`);
     }
+    // ===== CK-fork: context window approximation in tooltip — 2026-05-16 =====
+    if (model) {
+      const ctxBar = buildBar(ctxApproxUtil, 8);
+      lines.push(`ctx window:  ~${formatPercent(ctxApproxUtil)} [${ctxBar}] (approx — last msg input tokens)`);
+    }
+    // ===== END CK-fork =====
     lines.push('');
   } else {
     const providerLabel = providerType === 'aws-bedrock' ? vscode.l10n.t('AWS Bedrock')
@@ -201,7 +298,10 @@ export class StatusBarManager {
     this.item = vscode.window.createStatusBarItem(alignment, 100);
     this.item.name = vscode.l10n.t('Claude Code Usage');
     this.item.command = 'vscode-claude-status.openDashboard';
-    this.item.text = vscode.l10n.t('🤖 Claude: loading...');
+    // ===== CK-fork: removed 🤖 emoji — 2026-05-16 =====
+    // Original: this.item.text = vscode.l10n.t('🤖 Claude: loading...');
+    this.item.text = vscode.l10n.t('Claude: loading...');
+    // ===== END CK-fork =====
     this.item.show();
   }
 

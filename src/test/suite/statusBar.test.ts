@@ -21,6 +21,10 @@ function makeData(overrides: Partial<ClaudeUsageData> = {}): ClaudeUsageData {
     lastUpdated: new Date(),
     cacheAge: 30,
     dataSource: 'cache',
+    // ===== CK-fork: required fields added to test fixture — 2026-05-16 =====
+    model: 'claude-sonnet-4-6',
+    ctxApproxUtil: 0.18,
+    // ===== END CK-fork =====
     ...overrides,
   };
 }
@@ -55,14 +59,18 @@ suite('formatDuration', () => {
 });
 
 suite('StatusBar', () => {
+  // ===== CK-fork: updated assertions for changed label format — 2026-05-16 =====
+  // Original upstream: labels started with '🤖 '; CK fork removes the emoji prefix.
   test('buildLabel shows not-logged-in for no-credentials', () => {
     const label = buildLabel(makeData({ dataSource: 'no-credentials' }));
-    assert.strictEqual(label, '🤖 Not logged in');
+    // Original: assert.strictEqual(label, '🤖 Not logged in');
+    assert.ok(label.includes('not logged in'), `Expected not-logged-in in: ${label}`);
   });
 
   test('buildLabel shows run-refresh for no-data', () => {
     const label = buildLabel(makeData({ dataSource: 'no-data' }));
-    assert.strictEqual(label, '🤖 Claude: run refresh');
+    // Original: assert.strictEqual(label, '🤖 Claude: run refresh');
+    assert.ok(label.includes('run refresh'), `Expected run-refresh in: ${label}`);
   });
 
   test('buildLabel shows denied with ✗ indicator', () => {
@@ -70,14 +78,17 @@ suite('StatusBar', () => {
     assert.ok(label.includes('✗'), `Expected ✗ in: ${label}`);
   });
 
-  test('buildLabel shows ⚠ when utilization >= 75%', () => {
+  test('buildLabel shows bar (not plain %) when utilization >= 75%', () => {
+    // CK-fork: inline ⚠ markers removed; color coding via applyColor() instead.
+    // Original: assert.ok(label.includes('⚠'), ...);
     const label = buildLabel(makeData({
       utilization5h: 0.80,
       limitStatus: 'allowed_warning',
       dataSource: 'cache',
     }));
-    assert.ok(label.includes('⚠'), `Expected ⚠ in: ${label}`);
+    assert.ok(label.includes('█'), `Expected bar chars in: ${label}`);
   });
+  // ===== END CK-fork =====
 
   test('buildLabel shows stale age suffix for stale data (minutes)', () => {
     const label = buildLabel(makeData({ dataSource: 'stale', cacheAge: 600 }));

@@ -19,9 +19,15 @@ interface JsonlEntry {
   timestamp: string
   cwd?: string
   requestId?: string
+  // ===== CK-fork: added sessionId for ctx approximation — 2026-05-16 =====
+  sessionId?: string
+  // ===== END CK-fork =====
   message?: {
     id?: string
     usage?: TokenUsage
+    // ===== CK-fork: model field is present in real JSONL (verified 2026-05-16) =====
+    model?: string
+    // ===== END CK-fork =====
   }
 }
 
@@ -33,6 +39,14 @@ export interface AggregatedUsage {
   tokensOut5h: number
   tokensCacheRead5h: number
   tokensCacheCreate5h: number
+  // ===== CK-fork: model + ctx approximation fields — 2026-05-16 =====
+  // latestModel: model string from the most recent assistant JSONL entry (e.g. 'claude-sonnet-4-6')
+  // latestMsgInputTokens: input_tokens of the most recent message — used to approximate ctx window usage
+  // (input_tokens of last msg ≈ full conversation context sent to the API)
+  latestModel: string
+  latestMsgInputTokens: number
+  latestMsgTimestamp: number  // ms since epoch — lets callers decide if data is stale
+  // ===== END CK-fork =====
 }
 
 export interface TokenPricing {
@@ -145,6 +159,11 @@ export async function readAllUsage(pricing: TokenPricing = DEFAULT_PRICING): Pro
     tokensOut5h: 0,
     tokensCacheRead5h: 0,
     tokensCacheCreate5h: 0,
+    // ===== CK-fork: initialise ctx/model tracking fields — 2026-05-16 =====
+    latestModel: '',
+    latestMsgInputTokens: 0,
+    latestMsgTimestamp: 0,
+    // ===== END CK-fork =====
   };
 
   const files = await findAllJsonlFiles();
@@ -172,6 +191,16 @@ export async function readAllUsage(pricing: TokenPricing = DEFAULT_PRICING): Pro
         result.tokensCacheRead5h += usage.cache_read_input_tokens || 0;
         result.tokensCacheCreate5h += usage.cache_creation_input_tokens || 0;
       }
+      // ===== CK-fork: track most recent message for model + ctx approximation — 2026-05-16 =====
+      // We want the newest assistant entry across all files. Use timestamp as the sort key.
+      if (ts > result.latestMsgTimestamp) {
+        result.latestMsgTimestamp = ts;
+        result.latestMsgInputTokens = usage.input_tokens || 0;
+        if (entry.message?.model) {
+          result.latestModel = entry.message.model;
+        }
+      }
+      // ===== END CK-fork =====
     }
   }
 

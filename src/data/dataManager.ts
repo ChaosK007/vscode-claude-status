@@ -36,9 +36,41 @@ export interface ClaudeUsageData {
   lastUpdated: Date
   cacheAge: number
   dataSource: 'api' | 'cache' | 'stale' | 'no-credentials' | 'no-data' | 'local-only'
+
+  // ===== CK-fork: model name + context window approximation — 2026-05-16 =====
+  // model: e.g. 'claude-sonnet-4-6' from most recent JSONL assistant entry
+  // ctxApproxUtil: approximate context window utilisation (0–1).
+  //   Method: latestMsgInputTokens / MODEL_CONTEXT_WINDOW[model]
+  //   Why approximate: input_tokens of the last message ≈ full accumulated conversation context.
+  //   Limitation: lags by one JSONL poll cycle; does NOT reflect tokens added mid-turn.
+  model: string
+  ctxApproxUtil: number
+  // ===== END CK-fork =====
 }
 
 export { ProjectCostData };
+
+// ===== CK-fork: model context window sizes — 2026-05-16 =====
+// Source: Anthropic docs (https://docs.anthropic.com/en/docs/about-claude/models)
+// Last verified: 2026-05-16. Update when Anthropic changes context window sizes.
+// All Claude 3.x and Claude 4.x models currently have 200k token context windows.
+const MODEL_CONTEXT_TOKENS: Record<string, number> = {
+  'claude-opus-4-7':    200_000,
+  'claude-opus-4-5':    200_000,
+  'claude-sonnet-4-6':  200_000,
+  'claude-sonnet-4-5':  200_000,
+  'claude-haiku-4-5':   200_000,
+  'claude-3-5-sonnet-20241022': 200_000,
+  'claude-3-5-haiku-20241022':  200_000,
+  'claude-3-opus-20240229':     200_000,
+};
+const DEFAULT_CONTEXT_TOKENS = 200_000; // safe fallback for unknown models
+
+function computeCtxUtil(model: string, inputTokens: number): number {
+  const windowSize = MODEL_CONTEXT_TOKENS[model] ?? DEFAULT_CONTEXT_TOKENS;
+  return Math.min(1, inputTokens / windowSize);
+}
+// ===== END CK-fork =====
 
 export class DataManager {
   private static instance: DataManager;
@@ -107,6 +139,10 @@ export class DataManager {
 
     const cacheAge = cache ? getCacheAge(cache) : 0;
 
+    // ===== CK-fork: compute ctx approximation from JSONL data — 2026-05-16 =====
+    const ctxApproxUtil = computeCtxUtil(localUsage.latestModel, localUsage.latestMsgInputTokens);
+    // ===== END CK-fork =====
+
     const data: ClaudeUsageData = {
       utilization5h: rateLimitData?.utilization5h ?? 0,
       utilization7d: rateLimitData?.utilization7d ?? 0,
@@ -119,6 +155,10 @@ export class DataManager {
       lastUpdated: new Date(),
       cacheAge,
       dataSource,
+      // ===== CK-fork: model + ctx fields — 2026-05-16 =====
+      model: localUsage.latestModel,
+      ctxApproxUtil,
+      // ===== END CK-fork =====
     };
 
     this.lastData = data;

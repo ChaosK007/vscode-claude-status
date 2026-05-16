@@ -19,6 +19,11 @@ function checkWindowReset(resetIn5h: number): void {
 async function checkAndNotify(data: ClaudeUsageData, prediction: PredictionData | null): Promise<void> {
   checkWindowReset(data.resetIn5h);
   if (!prediction) { return; }
+  // ===== CK-fork: master notifications gate (claudeStatus.notifications.enabled, default false) — 2026-05-16 =====
+  // Upstream default fires popups for rate-limit warnings. CK prefers silent status-bar color coding.
+  // Original: no gate here — always ran the notification checks below.
+  if (!config.notificationsEnabled) { return; }
+  // ===== END CK-fork =====
 
   const { estimatedExhaustionIn } = prediction;
 

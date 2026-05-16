@@ -43,6 +43,14 @@ export class ExtensionConfig {
     return this.cfg.get('budget.alertThresholdPercent', 80);
   }
 
+  // ===== CK-fork: master notifications toggle, default OFF — 2026-05-16 =====
+  // Upstream default is true; CK finds popups disruptive during normal work.
+  // Set claudeStatus.notifications.enabled = true to re-enable all popups.
+  get notificationsEnabled(): boolean {
+    return this.cfg.get('notifications.enabled', false);
+  }
+  // ===== END CK-fork =====
+
   get rateLimitWarning(): boolean {
     return this.cfg.get('notifications.rateLimitWarning', true);
   }
