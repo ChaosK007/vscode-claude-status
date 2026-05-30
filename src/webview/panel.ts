@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { DataManager, ClaudeUsageData, ProjectCostData, PredictionData, HeatmapData } from '../data/dataManager';
 import { config } from '../config';
 import type { TokenPricing } from '../data/jsonlReader';
+import { buildLabel } from '../statusBar';
 
 interface DashboardSettings {
   provider: string;
@@ -13,6 +14,10 @@ interface DashboardSettings {
 
 interface DashboardMessage {
   usage: ClaudeUsageData;
+  // ===== CK-fork: status-bar label string for the pinned strip — 2026-05-30 =====
+  // Reuses buildLabel() so the sticky strip is byte-identical to the bottom status bar.
+  statusLabel: string;
+  // ===== END CK-fork =====
   projectCosts: ProjectCostData[];
   prediction: PredictionData | null;
   heatmap: HeatmapData | null;
@@ -150,6 +155,28 @@ function getWebviewContent(nonce: string, i18n: Record<string, string>): string 
       font-weight: 600;
     }
     .header-actions { display: flex; gap: 8px; }
+
+    /* ===== CK-fork: pinned status strip — stays in sight while the dashboard scrolls — 2026-05-30 ===== */
+    .sticky-top {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background-color: var(--vscode-editor-background);
+      /* bleed into body's 16px padding so the band spans edge-to-edge and covers content scrolling behind it */
+      margin: -16px -16px 12px -16px;
+      padding: 16px 16px 8px 16px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .sticky-top .header { margin-bottom: 8px; }
+    .status-strip {
+      font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+      font-size: 0.95em;
+      white-space: nowrap;
+      overflow-x: auto;
+      color: var(--vscode-foreground);
+      padding-bottom: 2px;
+    }
+    /* ===== END CK-fork ===== */
 
     button {
       background-color: var(--vscode-button-background);
@@ -401,13 +428,17 @@ function getWebviewContent(nonce: string, i18n: Record<string, string>): string 
 </head>
 <body>
 
-  <div class="header">
-    <h1>${i18n.title}</h1>
-    <div class="header-actions">
-      <button id="btn-refresh">${i18n.refresh}</button>
-      <button id="btn-toggle">${i18n.toggleMode}</button>
-      <button id="btn-settings">⚙</button>
+  <!-- CK-fork: header + live status line pinned together at top -->
+  <div class="sticky-top">
+    <div class="header">
+      <h1>${i18n.title}</h1>
+      <div class="header-actions">
+        <button id="btn-refresh">${i18n.refresh}</button>
+        <button id="btn-toggle">${i18n.toggleMode}</button>
+        <button id="btn-settings">⚙</button>
+      </div>
     </div>
+    <div class="status-strip" id="status-strip">—</div>
   </div>
 
   <!-- Current Usage -->
@@ -1209,6 +1240,8 @@ function getWebviewContent(nonce: string, i18n: Record<string, string>): string 
       if (msg.type === 'update') {
         if (refreshing) { setRefreshing(false); }
         lastData = msg.data;
+        // CK-fork: feed the pinned status strip the same label as the bottom status bar
+        document.getElementById('status-strip').textContent = msg.data.statusLabel || '—';
         updateUsage(msg.data.usage, currentMode);
         updateProjectCosts(msg.data.projectCosts);
         updatePrediction(msg.data.prediction, msg.data.usage, msg.data.settings);
@@ -1325,6 +1358,8 @@ export class DashboardPanel {
       type: 'update',
       data: {
         usage,
+        // CK-fork: same label the bottom status bar shows, for the pinned strip
+        statusLabel: buildLabel(usage, this.dataManager.getLastProjectCosts()),
         projectCosts: this.dataManager.getLastProjectCosts(),
         prediction,
         heatmap,
