@@ -73,6 +73,17 @@ suite('StatusBar', () => {
     assert.ok(label.includes('run refresh'), `Expected run-refresh in: ${label}`);
   });
 
+  test('buildLabel shows 5h reset countdown', () => {
+    // makeData default resetIn5h: 3600 → formatDuration → '1h'
+    const label = buildLabel(makeData({ dataSource: 'cache' }));
+    assert.ok(label.includes('(1h)'), `Expected 5h countdown in: ${label}`);
+  });
+
+  test('buildLabel omits countdown when resetIn5h is 0', () => {
+    const label = buildLabel(makeData({ dataSource: 'cache', resetIn5h: 0 }));
+    assert.ok(!/\(\d+[hmd]/.test(label), `Expected no countdown in: ${label}`);
+  });
+
   test('buildLabel shows denied with ✗ indicator', () => {
     const label = buildLabel(makeData({ limitStatus: 'denied', dataSource: 'cache' }));
     assert.ok(label.includes('✗'), `Expected ✗ in: ${label}`);

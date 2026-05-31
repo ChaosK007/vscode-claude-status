@@ -80,7 +80,7 @@ export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[
   // ===== END CK-fork header =====
 
   const { dataSource, utilization5h, utilization7d, limitStatus, cost5h, cost7d,
-          cacheAge, has7dLimit, providerType, model, ctxApproxUtil } = data;
+          cacheAge, has7dLimit, providerType, model, ctxApproxUtil, resetIn5h } = data;
   const displayMode = config.displayMode;
 
   // ===== CK-fork: removed 🤖 prefix from no-credentials / no-data states =====
@@ -121,6 +121,13 @@ export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[
       // Original: const warn5h = utilization5h >= 0.75 ? '⚠' : '';
       //           part5h = `5h:${formatPercent(utilization5h)}${warn5h}`;
       part5h = `5h:${renderBar(utilization5h)}`;
+      // ===== CK-fork: rough 5h reset countdown — 2026-05-31 =====
+      // Appends "(2h 13m)" after the 5h bar. resetIn5h is a fixed duration captured
+      // at fetch time (apiClient.ts), so it steps down each poll (~5 min) — not a live ticker.
+      if (resetIn5h > 0) {
+        part5h += ` (${formatDuration(resetIn5h)})`;
+      }
+      // ===== END CK-fork =====
       if (has7dLimit) {
         // Original: const warn7d = utilization7d >= 0.75 ? '⚠' : '';
         //           part7d = ` 7d:${formatPercent(utilization7d)}${warn7d}`;
