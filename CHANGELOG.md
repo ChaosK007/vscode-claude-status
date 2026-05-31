@@ -11,6 +11,30 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.7.0] — 2026-05-31
+
+### Added
+
+- **Diagnostic logging (CK)** — the extension previously swallowed every internal error in
+  bare `catch {}` blocks, so failures (API errors, cache misses, prediction/heatmap faults)
+  were invisible. There is now a `Logger` that mirrors to a **"Claude Status" Output panel**
+  channel and to a **log file** at `~/.claude/logs/vscode-claude-status.log` (rotates to
+  `.1` at 5 MB).
+  - **Verbose by default.** Every API call, provider detection, cache decision, watcher
+    event, notification, and refresh is logged. Each previously-silent `catch` now logs the
+    real error with stack.
+  - **Performance-safe.** Log lines are buffered in memory and flushed asynchronously on a
+    ~1.5 s timer — no synchronous file I/O on hot paths, so verbose logging does not slow
+    the editor.
+  - **New commands:** `Claude Status: Show Log (Output Panel)` and
+    `Claude Status: Open Log File`.
+  - **New settings:** `claudeStatus.logging.enabled` (default `true`),
+    `claudeStatus.logging.verbose` (default `true`), `claudeStatus.logging.level`
+    (floor when not verbose), `claudeStatus.logging.toFile` (default `true`),
+    `claudeStatus.logging.filePath` (default `~/.claude/logs/vscode-claude-status.log`).
+
+---
+
 ## [0.6.0] — 2026-05-10
 
 ### Fixed

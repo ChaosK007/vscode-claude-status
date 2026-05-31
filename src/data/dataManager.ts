@@ -8,6 +8,7 @@ import { getAllProjectCosts, ProjectCostData } from './projectCost';
 import { computePrediction, PredictionData } from './prediction';
 import { getHeatmapData as computeHeatmapData, HeatmapData } from '../webview/heatmap';
 import { config } from '../config';
+import { logger } from '../logger';
 
 export { PredictionData, HeatmapData };
 
@@ -96,13 +97,17 @@ export class DataManager {
   }
 
   async getUsageData(forceRefresh = false): Promise<ClaudeUsageData> {
+    const stop = logger.startTimer(`getUsageData(forceRefresh=${forceRefresh})`);
     const [localUsage, cache] = await Promise.all([readAllUsage(config.tokenPricing), readCache()]);
+    logger.debug(`Local JSONL read: cost5h=$${localUsage.cost5h.toFixed(4)} cost7d=$${localUsage.cost7d.toFixed(4)} ` +
+      `model=${localUsage.latestModel} | cache=${cache ? 'present' : 'none'}`);
 
     // Determine provider type (user config or auto-detection)
     const configuredProvider = config.claudeProvider;
     const providerType: ClaudeProvider = configuredProvider === 'auto'
       ? await detectProvider(config.credentialsPath)
       : configuredProvider;
+    logger.debug(`Provider: ${providerType} (config=${configuredProvider}) | rateLimitApiEnabled=${config.rateLimitApiEnabled}`);
 
     let rateLimitData: RateLimitData | null = null;
     let dataSource: ClaudeUsageData['dataSource'] = 'no-data';
@@ -111,16 +116,22 @@ export class DataManager {
       // Fetch rate limits from Anthropic API
       if (forceRefresh || (await this.shouldCallApi(cache))) {
         try {
+          logger.info('Calling Anthropic API for rate-limit headers');
           rateLimitData = await fetchRateLimitData(config.credentialsPath);
           await writeCache(rateLimitData);
           dataSource = 'api';
-        } catch {
+          logger.info(`API ok: 5h=${(rateLimitData.utilization5h * 100).toFixed(1)}% ` +
+            `7d=${(rateLimitData.utilization7d * 100).toFixed(1)}% status=${rateLimitData.limitStatus} ` +
+            `has7d=${rateLimitData.has7dLimit}`);
+        } catch (e) {
           // credentials missing or network error — fall back to cache
           if (cache) {
             rateLimitData = this.cacheToRateLimitData(cache.usageData);
             dataSource = isCacheValid(cache, config.cacheTtlSeconds) ? 'cache' : 'stale';
+            logger.warn(`API call failed — falling back to ${dataSource} cache`, e);
           } else {
             dataSource = 'no-credentials';
+            logger.warn('API call failed and no cache available (no-credentials)', e);
           }
         }
       } else if (cache) {
@@ -162,6 +173,8 @@ export class DataManager {
     };
 
     this.lastData = data;
+    logger.debug(`getUsageData result: dataSource=${dataSource} cacheAge=${cacheAge}s ctxApprox=${(ctxApproxUtil * 100).toFixed(0)}%`);
+    stop();
     return data;
   }
 
@@ -195,8 +208,10 @@ export class DataManager {
   async refreshProjectCosts(): Promise<void> {
     try {
       this.lastProjectCosts = await getAllProjectCosts(config.tokenPricing);
-    } catch {
+      logger.debug(`Project costs refreshed: ${this.lastProjectCosts.length} project(s)`);
+    } catch (e) {
       this.lastProjectCosts = [];
+      logger.warn('refreshProjectCosts failed (cleared to empty)', e);
     }
   }
 
@@ -215,8 +230,8 @@ export class DataManager {
 
       // Heatmap is slow — compute in background, then fire a second update
       this.refreshHeatmapBackground();
-    } catch {
-      // ignore refresh errors
+    } catch (e) {
+      logger.warn('refresh() failed', e);
     }
   }
 
@@ -232,8 +247,8 @@ export class DataManager {
       this._onDidUpdate.fire(data);
 
       this.refreshHeatmapBackground();
-    } catch {
-      // ignore refresh errors
+    } catch (e) {
+      logger.warn('forceRefresh() failed', e);
     }
   }
 
@@ -244,17 +259,16 @@ export class DataManager {
       this.heatmapPending = false;
       const freshData = this.lastData;
       if (freshData) { this._onDidUpdate.fire(freshData); }
-    }).catch(() => { this.heatmapPending = false; });
+    }).catch(e => { this.heatmapPending = false; logger.warn('heatmap background compute failed', e); });
   }
 
   startWatching(): void {
-    const pattern = new vscode.RelativePattern(
-      vscode.Uri.file(path.join(os.homedir(), '.claude', 'projects')),
-      '**/*.jsonl'
-    );
+    const watchDir = path.join(os.homedir(), '.claude', 'projects');
+    const pattern = new vscode.RelativePattern(vscode.Uri.file(watchDir), '**/*.jsonl');
     this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
-    this.watcher.onDidChange(() => this.refresh());
-    this.watcher.onDidCreate(() => this.refresh());
+    this.watcher.onDidChange(() => { logger.debug('JSONL changed — refresh'); this.refresh(); });
+    this.watcher.onDidCreate(() => { logger.debug('JSONL created — refresh'); this.refresh(); });
+    logger.info(`Watching for JSONL changes under ${watchDir}`);
   }
 
   async getPrediction(): Promise<PredictionData | null> {
@@ -269,7 +283,8 @@ export class DataManager {
       );
       this.lastPrediction = prediction;
       return prediction;
-    } catch {
+    } catch (e) {
+      logger.warn('getPrediction failed (returning previous prediction)', e);
       return this.lastPrediction;
     }
   }
@@ -284,11 +299,14 @@ export class DataManager {
       return this.lastHeatmapData;
     }
     try {
+      const stop = logger.startTimer('computeHeatmapData');
       const data = await computeHeatmapData(config.heatmapDays);
+      stop();
       this.lastHeatmapData = data;
       this.heatmapComputedAt = now;
       return data;
-    } catch {
+    } catch (e) {
+      logger.warn('getHeatmapData failed (returning stale heatmap)', e);
       return this.lastHeatmapData; // return stale on error
     }
   }

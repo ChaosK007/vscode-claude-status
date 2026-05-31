@@ -3,7 +3,7 @@
   "displayName": "%ext.displayName%",
   "description": "%ext.description%",
   "l10n": "./l10n",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "long-kudo",
   "engines": {
     "vscode": "^1.73.0"
@@ -58,6 +58,14 @@
       {
         "command": "vscode-claude-status.setBudget",
         "title": "%cmd.setBudget%"
+      },
+      {
+        "command": "vscode-claude-status.showLog",
+        "title": "%cmd.showLog%"
+      },
+      {
+        "command": "vscode-claude-status.openLogFile",
+        "title": "%cmd.openLogFile%"
       }
     ],
     "keybindings": [
@@ -215,6 +223,32 @@
           "default": 3.75,
           "minimum": 0,
           "description": "%config.pricing.cacheCreatePerMillion.desc%"
+        },
+        "claudeStatus.logging.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.logging.enabled.desc%"
+        },
+        "claudeStatus.logging.verbose": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.logging.verbose.desc%"
+        },
+        "claudeStatus.logging.level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "%config.logging.level.desc%"
+        },
+        "claudeStatus.logging.toFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.logging.toFile.desc%"
+        },
+        "claudeStatus.logging.filePath": {
+          "type": "string",
+          "default": "",
+          "description": "%config.logging.filePath.desc%"
         }
       }
     }
