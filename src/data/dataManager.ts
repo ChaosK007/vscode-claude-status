@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
-import { readAllUsage, wasJsonlUpdatedRecently } from './jsonlReader';
+import { readAllUsage } from './jsonlReader';
 import { fetchRateLimitData, detectProvider, RateLimitData, ClaudeProvider } from './apiClient';
 import { readCache, writeCache, isCacheValid, getCacheAge } from './cache';
 import { getAllProjectCosts, ProjectCostData } from './projectCost';
@@ -197,13 +197,16 @@ export class DataManager {
     };
   }
 
+  // ===== CK-fork: removed wasJsonlUpdatedRecently gate — 2026-06-04 =====
+  // Upstream only calls the API when local JSONL was updated in the last 5 min.
+  // CK's Claude Code runs on ccclaude (remote), so local JSONL is never updated
+  // and the API was never called — making resetIn5h stale (0) and the countdown
+  // invisible. Now calls the API whenever the cache expires (~$0.04/day at TTL=5m).
   private async shouldCallApi(cache: Awaited<ReturnType<typeof readCache>>): Promise<boolean> {
     if (!cache) { return true; }
-    if (!isCacheValid(cache, config.cacheTtlSeconds)) {
-      return await wasJsonlUpdatedRecently(300);
-    }
-    return false;
+    return !isCacheValid(cache, config.cacheTtlSeconds);
   }
+  // ===== END CK-fork =====
 
   async refreshProjectCosts(): Promise<void> {
     try {
