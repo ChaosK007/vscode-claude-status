@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ClaudeUsageData, ProjectCostData } from './data/dataManager';
+import { ClaudeUsageData, ProjectCostData, PredictionData } from './data/dataManager';
 import { config } from './config';
 
 export function formatDuration(seconds: number): string {
@@ -66,7 +66,7 @@ function truncateName(name: string): string {
   return name.length > 12 ? name.slice(0, 11) + '…' : name;
 }
 
-export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[] = []): string {
+export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[] = [], prediction?: PredictionData | null): string {
   // ===== CK-fork: rewritten to use bars, model name, plan, ctx approx — 2026-05-16 =====
   // Original upstream format: '🤖 5h:78% 7d:84%'
   // CK format:                'Son·Max 5h:[████░░░░] 45% 7d:[██░░░░░░] 23% ctx:~[██░░░░░░] 18%'
@@ -127,6 +127,12 @@ export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[
       if (resetIn5h > 0) {
         part5h += ` (${formatDuration(resetIn5h)})`;
       }
+      // ===== CK-fork: 5h exhaustion prediction inline indicator — 2026-06-05 =====
+      // Shows →~Xm after the reset countdown when burn rate predicts hitting the 5h limit.
+      // Hidden when prediction is 'safe' (>1h remaining) or rate limit already reached.
+      if (prediction && prediction.recommendationKey !== 'safe' && prediction.recommendationKey !== 'rate-limit-reached' && prediction.estimatedExhaustionIn !== null) {
+        part5h += ` →~${formatDuration(prediction.estimatedExhaustionIn)}`;
+      }
       // ===== END CK-fork =====
       if (has7dLimit) {
         // Original: const warn7d = utilization7d >= 0.75 ? '⚠' : '';
@@ -176,7 +182,7 @@ const PLAN_MODELS: Record<string, string[]> = {
 };
 // ===== END CK-fork =====
 
-export function buildTooltip(data: ClaudeUsageData, projectCosts: ProjectCostData[] = []): string {
+export function buildTooltip(data: ClaudeUsageData, projectCosts: ProjectCostData[] = [], prediction?: PredictionData | null): string {
   const {
     utilization5h, utilization7d, resetIn5h, resetIn7d,
     cost5h, costDay, cost7d, tokensIn5h, tokensOut5h,
@@ -228,6 +234,21 @@ export function buildTooltip(data: ClaudeUsageData, projectCosts: ProjectCostDat
     if (model) {
       const ctxBar = buildBar(ctxApproxUtil, 8);
       lines.push(`ctx window:  ~${formatPercent(ctxApproxUtil)} [${ctxBar}] (approx — last msg input tokens)`);
+    }
+    // ===== END CK-fork =====
+    // ===== CK-fork: prediction section in tooltip — 2026-06-05 =====
+    if (prediction && prediction.currentBurnRate > 0) {
+      lines.push('');
+      lines.push('Prediction (30m window)');
+      lines.push('─────────────────────────────');
+      lines.push(`burn rate:   $${prediction.currentBurnRate.toFixed(2)}/hr`);
+      if (prediction.estimatedExhaustionIn !== null && prediction.estimatedExhaustionIn > 0) {
+        const etaTime = prediction.estimatedExhaustionTime!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        lines.push(`5h exhaust:  ~${formatDuration(prediction.estimatedExhaustionIn)} (at ${etaTime})`);
+      } else if (prediction.estimatedExhaustionIn === 0) {
+        lines.push('5h exhaust:  NOW — rate limit reached');
+      }
+      lines.push(`status:      ${prediction.recommendation}`);
     }
     // ===== END CK-fork =====
     lines.push('');
@@ -312,9 +333,9 @@ export class StatusBarManager {
     this.item.show();
   }
 
-  update(data: ClaudeUsageData, projectCosts: ProjectCostData[] = []): void {
-    this.item.text = buildLabel(data, projectCosts);
-    this.item.tooltip = buildTooltip(data, projectCosts);
+  update(data: ClaudeUsageData, projectCosts: ProjectCostData[] = [], prediction?: PredictionData | null): void {
+    this.item.text = buildLabel(data, projectCosts, prediction);
+    this.item.tooltip = buildTooltip(data, projectCosts, prediction);
     applyColor(this.item, data);
   }
 

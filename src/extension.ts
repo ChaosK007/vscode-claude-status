@@ -77,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
   function updateStatusBar(): void {
     const data = dataManager.getLastData();
     if (data) {
-      statusBar.update(data, dataManager.getLastProjectCosts());
+      statusBar.update(data, dataManager.getLastProjectCosts(), dataManager.getLastPrediction());
     }
   }
 
@@ -141,9 +141,8 @@ export function activate(context: vscode.ExtensionContext) {
   // React to data updates (usage + project costs are refreshed together)
   context.subscriptions.push(
     dataManager.onDidUpdate(data => {
-      statusBar.update(data, dataManager.getLastProjectCosts());
-      // Check for rate limit / budget notifications
       const prediction = dataManager.getLastPrediction();
+      statusBar.update(data, dataManager.getLastProjectCosts(), prediction);
       checkAndNotify(data, prediction).catch(() => {});
     })
   );
@@ -174,8 +173,9 @@ export function activate(context: vscode.ExtensionContext) {
   Promise.all([
     dataManager.getUsageData(),
     dataManager.refreshProjectCosts(),
-  ]).then(([data]) => {
-    statusBar.update(data, dataManager.getLastProjectCosts());
+  ]).then(async ([data]) => {
+    await dataManager.getPrediction().catch(() => {});
+    statusBar.update(data, dataManager.getLastProjectCosts(), dataManager.getLastPrediction());
     logger.info('Initial load complete');
   }).catch(e => {
     // graceful degradation: status bar stays in "loading..." state
@@ -185,7 +185,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Timer: re-render every 60 seconds from cache
   const timer = setInterval(() => {
     dataManager.getUsageData()
-      .then(data => statusBar.update(data, dataManager.getLastProjectCosts()))
+      .then(data => statusBar.update(data, dataManager.getLastProjectCosts(), dataManager.getLastPrediction()))
       .catch(e => logger.warn('60s refresh tick failed', e));
   }, 60_000);
 
