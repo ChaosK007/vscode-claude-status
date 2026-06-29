@@ -1,0 +1,6 @@
+
+> vscode-claude-status@0.7.0 compile
+> webpack
+
+'webpack' is not recognized as an internal or external command,
+operable program or batch file.
