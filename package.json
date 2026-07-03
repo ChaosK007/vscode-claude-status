@@ -188,6 +188,7 @@
             "null"
           ],
           "default": null,
+          "scope": "machine",
           "description": "%config.credentials.path.desc%"
         },
         "claudeStatus.claudeProvider": {
@@ -255,6 +256,7 @@
         "claudeStatus.logging.filePath": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "%config.logging.filePath.desc%"
         }
       }

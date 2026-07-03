@@ -31,6 +31,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Graceful degradation unchanged: if the file is missing or has no `rate_limits`, the status
     bar falls back to the disk cache, then to cost-only.
 
+### Security
+
+- **`credentials.path` and `logging.filePath` are now `scope: machine` (#118 #11).** Previously
+  neither declared a scope, so a trusted-workspace `.vscode/settings.json` could set
+  `credentials.path` (redirect which credentials file is read for provider detection) or
+  `logging.filePath` (arbitrary-path append + rotate-clobber). Machine scope means only user/remote
+  settings can set them — a workspace can no longer override. Any pre-existing workspace-level value
+  for these keys is silently ignored after this change.
+
 ---
 
 ## [0.7.0] — 2026-05-31
