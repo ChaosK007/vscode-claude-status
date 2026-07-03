@@ -111,7 +111,14 @@
         "claudeStatus.rateLimitApi.enabled": {
           "type": "boolean",
           "default": true,
+          "scope": "machine",
           "description": "%config.rateLimitApi.enabled.desc%"
+        },
+        "claudeStatus.statusJson.path": {
+          "type": "string",
+          "default": "/tmp/claude-status.json",
+          "scope": "machine",
+          "description": "%config.statusJson.path.desc%"
         },
         "claudeStatus.realtime.enabled": {
           "type": "boolean",

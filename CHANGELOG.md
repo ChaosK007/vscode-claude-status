@@ -9,6 +9,28 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Rate-limit source moved off the Anthropic API to the local statusline JSON (CK, #118 #10).**
+  The extension previously read the Claude.ai **consumer-OAuth** token from
+  `~/.claude/.credentials.json` and POSTed a real `/v1/messages` haiku call purely to read the
+  `anthropic-ratelimit-unified-*` response headers. Anthropic **banned consumer-OAuth tokens in
+  non-Claude-Code clients** (began Jan 2026, server-enforced), making that call both a
+  ToS/account-ban risk and technically rejected. It is replaced by a free, local, zero-token
+  read of Claude Code's statusline JSON (`/tmp/claude-status.json` by default; configurable via
+  the new `claudeStatus.statusJson.path`), which already carries `rate_limits.{five_hour,seven_day}`.
+  - **No network call fires** for rate-limit data anymore.
+  - **New setting** `claudeStatus.statusJson.path` (`scope: machine` — a security control so a
+    workspace `.vscode/settings.json` cannot redirect the file read). `rateLimitApi.enabled` is
+    now also `scope: machine`.
+  - **Behaviour change:** the 7-day bar now shows whenever the statusline JSON contains a
+    `seven_day` block (previously gated on a `7d-reset` header being present).
+  - **Freshness** is now derived from the statusline file's mtime rather than an API-call
+    throttle; `cache.ttlSeconds` is reinterpreted as the freshness window. The per-poll
+    `shouldCallApi` throttle and the `realtime.enabled` behaviour are retired.
+  - Graceful degradation unchanged: if the file is missing or has no `rate_limits`, the status
+    bar falls back to the disk cache, then to cost-only.
+
 ---
 
 ## [0.7.0] — 2026-05-31

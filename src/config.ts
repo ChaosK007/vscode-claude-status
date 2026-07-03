@@ -71,6 +71,13 @@ export class ExtensionConfig {
     return this.cfg.get('credentials.path', null);
   }
 
+  // ===== CK-fork: local statusline-JSON path (rate-limit source) — 2026-07-03 (#118 #10) =====
+  // scope:machine in package.json prevents a workspace settings.json from redirecting the read.
+  get statusJsonPath(): string {
+    return this.cfg.get('statusJson.path', '/tmp/claude-status.json');
+  }
+  // ===== END CK-fork =====
+
   get claudeProvider(): 'auto' | ClaudeProvider {
     return this.cfg.get('claudeProvider', 'auto');
   }

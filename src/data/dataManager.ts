@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import { readAllUsage } from './jsonlReader';
-import { fetchRateLimitData, detectProvider, RateLimitData, ClaudeProvider } from './apiClient';
+import { readRateLimitData, detectProvider, RateLimitData, ClaudeProvider } from './apiClient';
 import { readCache, writeCache, isCacheValid, getCacheAge } from './cache';
 import { getAllProjectCosts, ProjectCostData } from './projectCost';
 import { computePrediction, PredictionData } from './prediction';
@@ -113,30 +113,36 @@ export class DataManager {
     let dataSource: ClaudeUsageData['dataSource'] = 'no-data';
 
     if (providerType === 'claude-ai' && config.rateLimitApiEnabled) {
-      // Fetch rate limits from Anthropic API
-      if (forceRefresh || (await this.shouldCallApi(cache))) {
-        try {
-          logger.info('Calling Anthropic API for rate-limit headers');
-          rateLimitData = await fetchRateLimitData(config.credentialsPath);
+      // Read rate limits from the local Claude Code statusline JSON (no network call — the
+      // old Anthropic API path is banned, see #118 #10). It's a free local file op, so read
+      // it on every poll; the shouldCallApi throttle is gone and forceRefresh no longer gates
+      // this path. Staleness is derived from the file's mtime, not a cache-age throttle.
+      try {
+        const { data, mtimeMs } = await readRateLimitData(config.statusJsonPath);
+        rateLimitData = data;
+        const ageSec = (Date.now() - mtimeMs) / 1000;
+        const fresh = ageSec < config.cacheTtlSeconds;
+        // 'api' historically meant "freshly obtained rate-limit data". Reused here to mean a
+        // fresh LOCAL read (no network call fires) so downstream statusBar/webview stay valid.
+        dataSource = fresh ? 'api' : 'stale';
+        // Never write stale data to the disk cache (only fresh reads). The ~/.claude disk
+        // cache survives reboot (/tmp does not), so it is still worth keeping.
+        if (fresh) {
           await writeCache(rateLimitData);
-          dataSource = 'api';
-          logger.info(`API ok: 5h=${(rateLimitData.utilization5h * 100).toFixed(1)}% ` +
-            `7d=${(rateLimitData.utilization7d * 100).toFixed(1)}% status=${rateLimitData.limitStatus} ` +
-            `has7d=${rateLimitData.has7dLimit}`);
-        } catch (e) {
-          // credentials missing or network error — fall back to cache
-          if (cache) {
-            rateLimitData = this.cacheToRateLimitData(cache.usageData);
-            dataSource = isCacheValid(cache, config.cacheTtlSeconds) ? 'cache' : 'stale';
-            logger.warn(`API call failed — falling back to ${dataSource} cache`, e);
-          } else {
-            dataSource = 'no-credentials';
-            logger.warn('API call failed and no cache available (no-credentials)', e);
-          }
         }
-      } else if (cache) {
-        rateLimitData = this.cacheToRateLimitData(cache.usageData);
-        dataSource = isCacheValid(cache, config.cacheTtlSeconds) ? 'cache' : 'stale';
+        logger.info(`Statusline read ok: 5h=${(rateLimitData.utilization5h * 100).toFixed(1)}% ` +
+          `7d=${(rateLimitData.utilization7d * 100).toFixed(1)}% status=${rateLimitData.limitStatus} ` +
+          `has7d=${rateLimitData.has7dLimit} age=${ageSec.toFixed(0)}s src=${dataSource}`);
+      } catch (e) {
+        // status file missing / unreadable / no rate_limits — fall back to disk cache
+        if (cache) {
+          rateLimitData = this.cacheToRateLimitData(cache.usageData);
+          dataSource = isCacheValid(cache, config.cacheTtlSeconds) ? 'cache' : 'stale';
+          logger.warn(`Statusline read failed — falling back to ${dataSource} cache`, e);
+        } else {
+          dataSource = 'no-credentials';
+          logger.warn('Statusline read failed and no cache available (no-credentials)', e);
+        }
       }
     } else if (providerType === 'claude-ai' && cache) {
       // API disabled by user but cache exists — show stale rate limit data with age indicator
@@ -197,15 +203,11 @@ export class DataManager {
     };
   }
 
-  // ===== CK-fork: removed wasJsonlUpdatedRecently gate — 2026-06-04 =====
-  // Upstream only calls the API when local JSONL was updated in the last 5 min.
-  // CK's Claude Code runs on ccclaude (remote), so local JSONL is never updated
-  // and the API was never called — making resetIn5h stale (0) and the countdown
-  // invisible. Now calls the API whenever the cache expires (~$0.04/day at TTL=5m).
-  private async shouldCallApi(cache: Awaited<ReturnType<typeof readCache>>): Promise<boolean> {
-    if (!cache) { return true; }
-    return !isCacheValid(cache, config.cacheTtlSeconds);
-  }
+  // ===== CK-fork: shouldCallApi throttle removed — 2026-07-03 (#118 #10) =====
+  // The 2026-06-04 throttle only existed to rate-limit the (now-banned) Anthropic API call.
+  // The rate-limit source is now a free local statusline-JSON read done on every poll, so the
+  // throttle no longer earns its keep and has been dropped. Staleness comes from the file
+  // mtime in getUsageData() instead.
   // ===== END CK-fork =====
 
   async refreshProjectCosts(): Promise<void> {

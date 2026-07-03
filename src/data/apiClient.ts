@@ -87,47 +87,67 @@ async function readCredentials(customPath?: string | null): Promise<string> {
   }
 }
 
-export async function fetchRateLimitData(customCredPath?: string | null): Promise<RateLimitData> {
-  const token = await readCredentials(customCredPath);
+// ===== CK-fork: local statusline-JSON rate-limit source — 2026-07-03 (#118 finding #10) =====
+// Replaces the removed fetchRateLimitData(). Anthropic banned consumer-OAuth tokens in
+// non-Claude-Code clients (began Jan 2026, formal notice ~2026-02-19, server-enforced), so
+// the old POST https://api.anthropic.com/v1/messages call — made purely to read
+// anthropic-ratelimit-unified-* response headers — is now both a ToS/account-ban risk and
+// technically rejected. Claude Code's statusline already writes the same numbers locally to
+// /tmp/claude-status.json on every render: free, local, sanctioned, zero token spend.
+//
+// Trust model: /tmp/claude-status.json is predictable and world-readable/writable. Treat it
+// as trusted local IPC (same trust level as the local Claude Code process that writes it). A
+// local actor could spoof the displayed rate numbers — cosmetic only (no code exec, no data
+// leak). The statusJson.path setting is scope:machine so a workspace .vscode/settings.json
+// cannot redirect this fs.readFile target. See planning/10_replace_banned_oauth_ratelimit.md.
+//
+// detectProvider / readCredentials / readCredentialsFromKeychain are KEPT: they are local
+// file/keychain reads (not the banned network call) and still classify provider='claude-ai'.
+interface StatusJson {
+  rate_limits?: {
+    five_hour?: { used_percentage?: number; resets_at?: number }
+    seven_day?: { used_percentage?: number; resets_at?: number }
+  }
+}
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'oauth-2025-04-20',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1,
-      messages: [{ role: 'user', content: '.' }],
-    }),
-  });
+export async function readRateLimitData(
+  statusJsonPath: string,
+): Promise<{ data: RateLimitData; mtimeMs: number }> {
+  const stat = await fs.stat(statusJsonPath);
+  const content = await fs.readFile(statusJsonPath, 'utf-8');
+  const parsed = JSON.parse(content) as StatusJson;
 
-  const util5h = parseFloat(response.headers.get('anthropic-ratelimit-unified-5h-utilization') ?? '0');
-  const util7d = parseFloat(response.headers.get('anthropic-ratelimit-unified-7d-utilization') ?? '0');
-  const reset5hStr = response.headers.get('anthropic-ratelimit-unified-5h-reset');
-  const reset7dStr = response.headers.get('anthropic-ratelimit-unified-7d-reset');
-  // Status header value is "allowed" or "denied" (not a boolean)
-  const status5h = response.headers.get('anthropic-ratelimit-unified-5h-status');
+  const fiveHour = parsed.rate_limits?.five_hour;
+  if (fiveHour?.used_percentage === undefined) {
+    // No usable rate-limit data — let the caller degrade gracefully to cost-only.
+    throw new Error('No rate_limits.five_hour.used_percentage in statusline JSON');
+  }
+  const sevenDay = parsed.rate_limits?.seven_day;
 
-  // 7d limit is only present on Claude.ai Max plans — detect by header presence
-  const has7dLimit = reset7dStr !== null;
+  // used_percentage is a whole number (e.g. 21 → 0.21). 7d bar now shows whenever the
+  // seven_day field exists (documented behaviour change from the old header-presence check).
+  const utilization5h = fiveHour.used_percentage / 100;
+  const utilization7d = (sevenDay?.used_percentage ?? 0) / 100;
+  const has7dLimit = sevenDay !== undefined;
 
-  // Reset values are Unix timestamps in seconds (not ISO date strings)
+  // resets_at values are Unix timestamps in seconds (absolute).
   const nowSec = Date.now() / 1000;
-  const resetIn5h = reset5hStr ? Math.max(0, parseInt(reset5hStr, 10) - nowSec) : 0;
-  const resetIn7d = reset7dStr ? Math.max(0, parseInt(reset7dStr, 10) - nowSec) : 0;
+  const resetIn5h = fiveHour.resets_at ? Math.max(0, fiveHour.resets_at - nowSec) : 0;
+  const resetIn7d = sevenDay?.resets_at ? Math.max(0, sevenDay.resets_at - nowSec) : 0;
 
+  // Mirrors the old header-derived logic (>=1 denied, >=0.75 warning).
   let limitStatus: 'allowed' | 'allowed_warning' | 'denied';
-  if (status5h === 'denied') {
+  if (utilization5h >= 1) {
     limitStatus = 'denied';
-  } else if (util5h >= 0.75 || (has7dLimit && util7d >= 0.75)) {
+  } else if (utilization5h >= 0.75 || (has7dLimit && utilization7d >= 0.75)) {
     limitStatus = 'allowed_warning';
   } else {
     limitStatus = 'allowed';
   }
 
-  return { utilization5h: util5h, utilization7d: util7d, resetIn5h, resetIn7d, limitStatus, has7dLimit };
+  return {
+    data: { utilization5h, utilization7d, resetIn5h, resetIn7d, limitStatus, has7dLimit },
+    mtimeMs: stat.mtimeMs,
+  };
 }
+// ===== END CK-fork =====
