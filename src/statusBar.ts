@@ -122,8 +122,8 @@ export function buildLabel(data: ClaudeUsageData, projectCosts: ProjectCostData[
       //           part5h = `5h:${formatPercent(utilization5h)}${warn5h}`;
       part5h = `5h:${renderBar(utilization5h)}`;
       // ===== CK-fork: rough 5h reset countdown — 2026-05-31 =====
-      // Appends "(2h 13m)" after the 5h bar. resetIn5h is a fixed duration captured
-      // at fetch time (apiClient.ts), so it steps down each poll (~5 min) — not a live ticker.
+      // Appends "(2h 13m)" after the 5h bar. resetIn5h is recomputed from the absolute
+      // reset timestamp (dataManager.ts) on every 60 s render tick — steps down once a minute.
       if (resetIn5h > 0) {
         part5h += ` (${formatDuration(resetIn5h)})`;
       }
